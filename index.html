@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>配車管理者アプリ 完成版</title>
+
+<style>
+body{
+  margin:0;
+  font-family:sans-serif;
+  background:#f3f4f6;
+}
+
+header{
+  background:#1976d2;
+  color:#fff;
+  padding:14px;
+  text-align:center;
+  font-size:20px;
+  font-weight:bold;
+}
+
+.wrap{
+  display:grid;
+  grid-template-columns:430px 1fr;
+  gap:12px;
+  padding:12px;
+  height:calc(100vh - 64px);
+  box-sizing:border-box;
+}
+
+.card{
+  background:#fff;
+  border-radius:10px;
+  padding:12px;
+  box-shadow:0 2px 6px rgba(0,0,0,.08);
+}
+
+.leftArea{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  overflow:hidden;
+}
+
+.detailBox{
+  flex:1;
+  overflow:auto;
+}
+
+.board{
+  overflow:auto;
+  height:100%;
+}
+
+.row{
+  display:flex;
+  gap:8px;
+  margin-bottom:8px;
+}
+
+.row > *{
+  flex:1;
+}
+
+input,select,button{
+  width:100%;
+  padding:8px;
+  border:1px solid #ccc;
+  border-radius:6px;
+  box-sizing:border-box;
+}
+
+button{
+  border:none;
+  cursor:pointer;
+  font-weight:bold;
+}
+
+.blue{background:#1976d2;color:#fff;}
+.gray{background:#607d8b;color:#fff;}
+.green{background:#2e7d32;color:#fff;}
+.yellow{background:#f9a825;color:#fff;}
+.red{background:#d32f2f;color:#fff;}
+
+label{
+  display:block;
+  font-size:12px;
+  color:#555;
+  margin-bottom:3px;
+}
+
+table{
+  border-collapse:collapse;
+  min-width:2200px;
+  width:100%;
+}
+
+th,td{
+  border:1px solid #ddd;
+  text-align:center;
+  padding:0;
+  font-size:11px;
+  height:42px;
+  position:relative;
+  overflow:visible;
+}
+
+th{
+  background:#eef3f8;
+  position:sticky;
+  top:0;
+  z-index:5;
+}
+
+.left{
+  width:88px;
+  min-width:88px;
+  max-width:88px;
+  font-size:11px;
+  font-weight:bold;
+  word-break:break-all;
+}
+
+.slot{
+  width:28px;
+  min-width:28px;
+}
+
+.sep{
+  border-right:3px solid #333 !important;
+}
+
+.bar{
+  position:absolute;
+  inset:0;
+  cursor:pointer;
+  z-index:1;
+}
+
+.label{
+  position:absolute;
+  left:4px;
+  top:3px;
+  z-index:5;
+  color:#fff;
+  font-size:10px;
+  line-height:1.15;
+  font-weight:bold;
+  white-space:nowrap;
+  width:max-content;
+  pointer-events:none;
+  text-shadow:
+    0 1px 2px rgba(0,0,0,.65),
+    0 0 3px rgba(0,0,0,.55);
+}
+
+.selected{
+  outline:3px solid #fff;
+  box-shadow:0 0 0 2px #000;
+  z-index:20 !important;
+}
+
+/* 構内 */
+.in_wait{background:#9e9e9e;}
+.in_ok{background:#2e7d32;}
+.in_adj{background:#f9a825;}
+.in_ng{background:#d32f2f;}
+
+/* 外注 */
+.out_wait{background:#607d8b;}
+.out_ok{background:#1565c0;}
+.out_adj{background:#8e24aa;}
+.out_ng{background:#c62828;}
+
+#msg{
+  margin-top:10px;
+  font-weight:bold;
+}
+</style>
+</head>
+
+<body>
+
+<header>配車管理者アプリ 完成版</header>
+
+<div class="wrap">
+
+<div class="leftArea">
+
+<div class="card">
+
+<div class="row">
+<button class="gray" onclick="moveDate(-1)">◀ 前日</button>
+<input type="date" id="baseDate">
+<button class="gray" onclick="moveDate(1)">翌日 ▶</button>
+</div>
+
+<div class="row">
+<button class="blue" onclick="loadBoard()">表示</button>
+<button class="blue" onclick="loadBoard()">再読込</button>
+</div>
+
+</div>
+
+<div class="card detailBox">
+
+<h3 style="margin-top:0;">案件詳細 / 編集</h3>
+
+<div id="detailArea">
+案件をクリックしてください
+</div>
+
+<div id="msg"></div>
+
+</div>
+
+</div>
+
+<div class="card">
+<div id="board" class="board"></div>
+</div>
+
+</div>
+
+<script>
+const GAS_URL="https://script.google.com/macros/s/AKfycbyoVFSoUFvmnKCM8rCKBrNKFzgaIs7upyX31ct84iuhNGz0pKGeuZRtrJjOg7bx4TQ/exec";
+
+let allData=[];
+let selectedId="";
+
+/* -------------------- */
+function esc(v){
+ return String(v??"")
+ .replaceAll("&","&amp;")
+ .replaceAll("<","&lt;")
+ .replaceAll(">","&gt;");
+}
+
+function hmToCol(t){
+ const [h,m]=t.split(":").map(Number);
+ return ((h-8)*2)+(m===30?1:0);
+}
+
+function getPos(dateStr,timeStr,baseDate){
+
+ const b=new Date(baseDate);
+ const d=new Date(dateStr);
+
+ b.setHours(0,0,0,0);
+ d.setHours(0,0,0,0);
+
+ const diff=Math.round((d-b)/86400000);
+
+ if(diff<-1||diff>1)return -1;
+
+ return (diff+1)*20 + hmToCol(timeStr);
+}
+
+function barClass(item){
+
+ const out=item["種別"]==="外注便";
+ const st=item["ステータス"];
+
+ if(out){
+   if(st==="承認") return "out_ok";
+   if(st==="調整中") return "out_adj";
+   if(st==="否認") return "out_ng";
+   return "out_wait";
+ }else{
+   if(st==="承認") return "in_ok";
+   if(st==="調整中") return "in_adj";
+   if(st==="否認") return "in_ng";
+   return "in_wait";
+ }
+}
+
+async function getJSON(){
+ const r=await fetch(GAS_URL+"?t="+Date.now());
+ return await r.json();
+}
+
+async function postJSON(payload){
+ const r=await fetch(GAS_URL,{
+   method:"POST",
+   body:JSON.stringify(payload)
+ });
+ return await r.json();
+}
+
+/* -------------------- */
+function moveDate(n){
+
+ const el=document.getElementById("baseDate");
+ const d=new Date(el.value);
+
+ d.setDate(d.getDate()+n);
+
+ const y=d.getFullYear();
+ const m=String(d.getMonth()+1).padStart(2,"0");
+ const da=String(d.getDate()).padStart(2,"0");
+
+ el.value=`${y}-${m}-${da}`;
+
+ loadBoard();
+}
+
+/* -------------------- */
+async function loadBoard(){
+ allData=await getJSON();
+ drawBoard();
+}
+
+function drawBoard(){
+
+ const baseDate=document.getElementById("baseDate").value;
+
+ const data=allData.filter(x=>{
+   return getPos(x["開始日"],x["開始時間"],baseDate)>=0;
+ });
+
+ const trucks=[...new Set(data.map(x=>x["車両"]))];
+
+ let html="<table>";
+
+ html+="<tr><th rowspan='2'>車両</th>";
+
+ const base=new Date(baseDate);
+
+ for(let d=-1; d<=1; d++){
+
+   const dt=new Date(base);
+   dt.setDate(dt.getDate()+d);
+
+   const mm=String(dt.getMonth()+1).padStart(2,"0");
+   const dd=String(dt.getDate()).padStart(2,"0");
+
+   html+=`<th colspan="20">${mm}/${dd}</th>`;
+ }
+
+ html+="</tr><tr>";
+
+ for(let d=0; d<3; d++){
+   for(let h=8; h<18; h++){
+     html+=`<th colspan="2">${h}時</th>`;
+   }
+ }
+
+ html+="</tr>";
+
+ trucks.forEach(truck=>{
+
+   const rows=data.filter(x=>x["車両"]===truck);
+
+   rows.forEach((item,rowIndex)=>{
+
+     html+="<tr>";
+
+     if(rowIndex===0){
+       html+=`<td class="left" rowspan="${rows.length}">
+       ${esc(truck)}
+       </td>`;
+     }
+
+     const s=getPos(item["開始日"],item["開始時間"],baseDate);
+     const e=getPos(item["終了日"],item["終了時間"],baseDate);
+
+     for(let i=0;i<60;i++){
+
+       const sep=(i===19||i===39)?"sep":"";
+
+       if(i<s || i>=e){
+
+         html+=`<td class="slot ${sep}"></td>`;
+
+       }else{
+
+         const sel=item["申請ID"]===selectedId?"selected":"";
+
+         if(i===s){
+
+           html+=`
+           <td class="slot ${sep}">
+            <div class="bar ${barClass(item)} ${sel}"
+             onclick="selectItem('${item["申請ID"]}')"></div>
+
+            <div class="label">
+             ${esc(item["所属"])}<br>
+             ${esc(item["使用者"])}
+            </div>
+           </td>`;
+
+         }else{
+
+           html+=`
+           <td class="slot ${sep}">
+            <div class="bar ${barClass(item)} ${sel}"
+             onclick="selectItem('${item["申請ID"]}')"></div>
+           </td>`;
+         }
+
+       }
+
+     }
+
+     html+="</tr>";
+
+   });
+
+ });
+
+ html+="</table>";
+
+ document.getElementById("board").innerHTML=html;
+}
+
+/* -------------------- */
+function selectItem(id){
+
+ selectedId=id;
+ drawBoard();
+
+ const d=allData.find(x=>x["申請ID"]===id);
+ if(!d)return;
+
+ const st=d["開始時間"].split(":");
+ const ed=d["終了時間"].split(":");
+
+ detailArea.innerHTML=`
+
+<label>所属</label>
+<input id="f1" value="${esc(d["所属"])}">
+
+<label>使用者</label>
+<input id="f2" value="${esc(d["使用者"])}">
+
+<div class="row">
+<div>
+<label>開始日</label>
+<input type="date" id="f3" value="${d["開始日"]}">
+</div>
+<div>
+<label>開始時間</label>
+<div class="row">
+<select id="f4h">${hourOpt(st[0])}</select>
+<select id="f4m">${minOpt(st[1])}</select>
+</div>
+</div>
+</div>
+
+<div class="row">
+<div>
+<label>終了日</label>
+<input type="date" id="f5" value="${d["終了日"]}">
+</div>
+<div>
+<label>終了時間</label>
+<div class="row">
+<select id="f6h">${hourOpt(ed[0])}</select>
+<select id="f6m">${minOpt(ed[1])}</select>
+</div>
+</div>
+</div>
+
+<label>車両</label>
+<input id="f7" value="${esc(d["車両"])}">
+
+<label>目的</label>
+<input id="f8" value="${esc(d["目的"])}">
+
+<label>取引先</label>
+<input id="f9" value="${esc(d["取引先"])}">
+
+<label>物量</label>
+<input id="f10" value="${esc(d["物量"])}">
+
+<label>緊急性</label>
+<input id="f11" value="${esc(d["緊急性"])}">
+
+<div class="row" style="margin-top:10px;">
+<button class="blue" onclick="saveEdit()">保存</button>
+</div>
+
+<div class="row">
+<button class="green" onclick="changeStatus('承認')">承認</button>
+<button class="yellow" onclick="changeStatus('調整中')">調整</button>
+<button class="red" onclick="changeStatus('否認')">否認</button>
+</div>
+`;
+}
+
+function hourOpt(sel="08"){
+ let h="";
+ for(let i=8;i<=18;i++){
+   const v=String(i).padStart(2,"0");
+   h+=`<option ${sel==v?"selected":""}>${v}</option>`;
+ }
+ return h;
+}
+
+function minOpt(sel="00"){
+ return `
+ <option ${sel=="00"?"selected":""}>00</option>
+ <option ${sel=="30"?"selected":""}>30</option>
+ `;
+}
+
+/* -------------------- */
+async function changeStatus(status){
+
+ const item=allData.find(x=>x["申請ID"]===selectedId);
+ if(!item)return;
+
+ const old=item["ステータス"];
+ item["ステータス"]=status;
+
+ drawBoard();
+ msg.textContent="保存中...";
+
+ const res=await postJSON({
+   action:"status",
+   id:selectedId,
+   status:status
+ });
+
+ if(res.result==="ok"){
+   msg.textContent="更新しました";
+ }else{
+   item["ステータス"]=old;
+   drawBoard();
+   msg.textContent="更新失敗";
+ }
+}
+
+/* -------------------- */
+async function saveEdit(){
+
+ const item=allData.find(x=>x["申請ID"]===selectedId);
+ if(!item)return;
+
+ const backup=JSON.parse(JSON.stringify(item));
+
+ item["所属"]=f1.value;
+ item["使用者"]=f2.value;
+ item["開始日"]=f3.value;
+ item["開始時間"]=f4h.value+":"+f4m.value;
+ item["終了日"]=f5.value;
+ item["終了時間"]=f6h.value+":"+f6m.value;
+ item["車両"]=f7.value;
+ item["目的"]=f8.value;
+ item["取引先"]=f9.value;
+ item["物量"]=f10.value;
+ item["緊急性"]=f11.value;
+
+ drawBoard();
+ msg.textContent="保存中...";
+
+ const res=await postJSON({
+   action:"update",
+   id:selectedId,
+   data:item
+ });
+
+ if(res.result==="ok"){
+   msg.textContent="保存しました";
+ }else{
+   Object.assign(item,backup);
+   drawBoard();
+   msg.textContent="保存失敗";
+ }
+}
+
+document.getElementById("baseDate").valueAsDate = new Date();
+loadBoard();
+
+</script>
+</body>
+</html>
